@@ -1,15 +1,26 @@
 cmake_minimum_required(VERSION 3.28)
 
-# The current implementation is compiled only for sm_120a. Set and validate the
-# architecture before CUDA compiler detection so CMake never injects a generic
-# host-toolchain default or accepts an unsupported target.
+# Supported CUDA architectures: sm_86 (RTX 3060/3070/3080, Ampere) and
+# sm_120a (RTX 5090, Blackwell). Set and validate before CUDA compiler
+# detection so CMake never injects a generic host-toolchain default.
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-  set(CMAKE_CUDA_ARCHITECTURES 120a CACHE STRING "CUDA architectures to build")
+  set(CMAKE_CUDA_ARCHITECTURES 86 CACHE STRING "CUDA architectures to build")
 endif()
-if(NOT CMAKE_CUDA_ARCHITECTURES STREQUAL "120a")
-  message(FATAL_ERROR
-    "NInfer supports only CMAKE_CUDA_ARCHITECTURES=120a; got "
-    "'${CMAKE_CUDA_ARCHITECTURES}'")
+# Validate: accept 86 (Ampere) or 120a (Blackwell).
+string(REPLACE ";" "," _ninfer_arch_list "${CMAKE_CUDA_ARCHITECTURES}")
+foreach(_arch IN LISTS CMAKE_CUDA_ARCHITECTURES)
+  if(NOT _arch STREQUAL "86" AND NOT _arch STREQUAL "120a")
+    message(FATAL_ERROR
+      "NInfer supports CMAKE_CUDA_ARCHITECTURES of 86 or 120a; got '${_arch}'")
+  endif()
+endforeach()
+# Track the target architecture for conditional compilation.
+if(CMAKE_CUDA_ARCHITECTURES MATCHES "120a")
+  set(NINFER_TARGET_SM_120 TRUE)
+  set(NINFER_TARGET_SM_86 FALSE)
+else()
+  set(NINFER_TARGET_SM_120 FALSE)
+  set(NINFER_TARGET_SM_86 TRUE)
 endif()
 
 project(ninfer LANGUAGES C CXX CUDA)
@@ -37,6 +48,15 @@ if(CMAKE_CUDA_COMPILER_VERSION VERSION_LESS 13.1)
   message(FATAL_ERROR
     "NInfer requires CUDA 13.1 or newer; found CUDA compiler "
     "${CMAKE_CUDA_COMPILER_VERSION}")
+endif()
+
+# Export the target-architecture selection to source files for host-side
+# conditional compilation (cooperative grid sizing, feature gating).
+if(NINFER_TARGET_SM_86)
+  add_compile_definitions(NINFER_TARGET_SM_86=1)
+endif()
+if(NINFER_TARGET_SM_120)
+  add_compile_definitions(NINFER_TARGET_SM_120=1)
 endif()
 
 set(NINFER_BUILD_MEDIA_ACQUIRE OFF)
