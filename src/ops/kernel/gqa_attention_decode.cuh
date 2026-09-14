@@ -24,6 +24,11 @@ inline constexpr int kGqaHeadDim = 256;
 
 // The SM shared-memory residency budget the split-KV decode kernels are tuned against.
 //
+// sm_120 and sm_86 both expose a 100 KiB per-SM shared-memory carveout (sm_86's per-block
+// opt-in ceiling is 99 KiB, so a CTA total of 100 KiB would fail the cudaFuncSetAttribute
+// opt-in; the static_asserts below keep every CTA under 100 KiB, which is also what any
+// MinBlocksPerSm > 1 profile requires to stay resident at two CTAs per SM).
+//
 // sm_120 offers 100 KiB of shared memory per SM to a CTA carveout, and every decode instantiation
 // carries an explicit `MinBlocksPerSm` in its `__launch_bounds__` -- 2 for the long-window profiles
 // that matter here. If the sum of one CTA's shared memory times that occupancy target ever exceeds
