@@ -151,7 +151,7 @@ NInfer는 현재 다음을 요구합니다:
 이 포크를 클론하세요, 상류가 아닙니다 — 상류에는 `--tp 2`도 `--rope yarn`도 없습니다.
 
 ```bash
-git clone https://github.com/wamansou/ninfer-tp2-1m.git
+git clone https://github.com/giocom/ninfer-tp2.git
 cd ninfer-tp2-1m
 
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release

@@ -156,7 +156,7 @@ binary distribution; NInfer is run from its source build tree.
 Clone this fork, not upstream — upstream has neither `--tp 2` nor `--rope yarn`.
 
 ```bash
-git clone https://github.com/wamansou/ninfer-tp2-1m.git
+git clone https://github.com/giocom/ninfer-tp2.git
 cd ninfer-tp2-1m
 
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
