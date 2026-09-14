@@ -178,7 +178,12 @@ void require_fp8_metadata(const Weight& table, const Tensor& out) {
          (static_cast<std::uintptr_t>(alignof(std::uint32_t)) - 1)) != 0) {
         throw std::invalid_argument("embedding: FP8 output must be 4-byte aligned");
     }
+    #if NINFER_TARGET_SM_120
     (void)detail::validate_fp8_weight(table, "embedding");
+#else
+    throw std::invalid_argument(
+        "embedding: FP8 table requires an sm_120a (NINFER_TARGET_SM_120) build");
+#endif
 }
 
 bool is_empty_T(const Tensor& ids, const Tensor& out) { return ids.ne[0] == 0 || out.ne[1] == 0; }
@@ -227,11 +232,16 @@ void embedding(const Tensor& ids, const Weight& table, Tensor& out, cudaStream_t
         detail::embed_gather_w8_launch(ids, table, out, stream);
         break;
     case QType::FP8_E4M3FN_ROW_BF16S:
+#if NINFER_TARGET_SM_120
         require_fp8_metadata(table, out);
         if (is_empty_T(ids, out)) { return; }
         require_non_empty_tensors(ids, out);
         detail::embed_gather_fp8_launch(ids, table, out, stream);
         break;
+#else
+        throw std::invalid_argument(
+            "embedding: FP8 table requires an sm_120a (NINFER_TARGET_SM_120) build");
+#endif
     default:
         throw std::invalid_argument("embedding: unsupported table qtype");
     }

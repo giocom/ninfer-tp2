@@ -16,6 +16,7 @@ constexpr int kQ6GroupedBlock = kEmbedGatherQ6Group * kEmbedGatherQ6GroupsPerBlo
 constexpr int kW8GroupedBlock = 32;
 constexpr int kW8RowBlock     = 256;
 
+#if NINFER_TARGET_SM_120
 template <int BlocksPerToken, int Threads>
 void launch_fp8(const Tensor& ids, const Weight& table, Tensor& out, cudaStream_t stream) {
     const int grid = ids.ne[0] * BlocksPerToken;
@@ -23,6 +24,7 @@ void launch_fp8(const Tensor& ids, const Weight& table, Tensor& out, cudaStream_
         static_cast<const std::int32_t*>(ids.data), static_cast<const std::uint8_t*>(table.qdata),
         static_cast<const __nv_bfloat16*>(table.scales), static_cast<__nv_bfloat16*>(out.data));
 }
+#endif
 
 int grid_for(std::int64_t n) {
     return static_cast<int>(
@@ -120,6 +122,7 @@ void embed_gather_w8_launch(const Tensor& ids, const Weight& table, Tensor& out,
     CUDA_CHECK(cudaGetLastError());
 }
 
+#if NINFER_TARGET_SM_120
 void embed_gather_fp8_launch(const Tensor& ids, const Weight& table, Tensor& out,
                              cudaStream_t stream) {
     const std::int32_t T = ids.ne[0];
@@ -130,5 +133,6 @@ void embed_gather_fp8_launch(const Tensor& ids, const Weight& table, Tensor& out
     }
     CUDA_CHECK(cudaGetLastError());
 }
+#endif
 
 } // namespace ninfer::ops::detail

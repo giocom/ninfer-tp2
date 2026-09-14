@@ -58,12 +58,21 @@ std::size_t linear_swiglu_workspace_capacity_bytes(QType qtype, std::int32_t gat
         return detail::q4_linear_swiglu_capacity_workspace_bytes(
             gate_up_rows, gate_up_rows / 2, input_rows, input_rows, min_tokens, max_tokens);
     }
+    #if NINFER_TARGET_SM_120
     if (qtype == QType::NVFP4 && gate_up_rows == 34816 && input_rows == 5120) {
         return detail::nvfp4_linear_swiglu_workspace_capacity_bytes(policy, min_tokens, max_tokens);
     }
     if (qtype == QType::FP8_E4M3FN_ROW_BF16S && gate_up_rows == 34816 && input_rows == 5120) {
         return detail::fp8_linear_swiglu_workspace_capacity_bytes(policy, min_tokens, max_tokens);
     }
+#else
+    if ((qtype == QType::NVFP4 || qtype == QType::FP8_E4M3FN_ROW_BF16S) &&
+        gate_up_rows == 34816 && input_rows == 5120) {
+        throw std::invalid_argument(
+            "linear_swiglu workspace: FP8/NVFP4 requires an sm_120a "
+            "(NINFER_TARGET_SM_120) build");
+    }
+#endif
     throw std::invalid_argument("linear_swiglu workspace: unsupported weight format");
 }
 
@@ -117,6 +126,7 @@ void linear_swiglu(const Tensor& x, const Weight& gate_up_weight, Tensor& out, L
         throw std::invalid_argument("linear_swiglu: unsupported weight");
     }
 
+    #if NINFER_TARGET_SM_120
     if (fp8_weight) {
         (void)detail::validate_fp8_weight(gate_up_weight, "fp8 linear_swiglu");
         detail::fp8_linear_swiglu_dispatch(x, gate_up_weight, out, policy, ws, stream);
@@ -128,6 +138,12 @@ void linear_swiglu(const Tensor& x, const Weight& gate_up_weight, Tensor& out, L
         detail::nvfp4_linear_swiglu_dispatch(x, gate_up_weight, out, policy, ws, stream);
         return;
     }
+#else
+    if (fp8_weight || nvfp4_weight) {
+        throw std::invalid_argument(
+            "linear_swiglu: FP8/NVFP4 requires an sm_120a (NINFER_TARGET_SM_120) build");
+    }
+#endif
 
     if (policy != LinearPolicy::A16Only) {
         throw std::invalid_argument("linear_swiglu: Q4/W8 admit only A16");
@@ -192,6 +208,7 @@ void validate_swiglu_column_rank_semantics(const Tensor& x, const Weight& w, con
         throw std::invalid_argument("linear_swiglu column-parallel: unsupported weight format");
     }
 
+    #if NINFER_TARGET_SM_120
     if (nvfp4_weight) {
         (void)detail::validate_nvfp4_weight(w, "nvfp4 linear_swiglu column-parallel");
         return;
@@ -203,6 +220,13 @@ void validate_swiglu_column_rank_semantics(const Tensor& x, const Weight& w, con
         (void)detail::validate_fp8_weight(w, "fp8 linear_swiglu column-parallel");
         return;
     }
+#else
+    if (nvfp4_weight || fp8_weight) {
+        throw std::invalid_argument(
+            "linear_swiglu column-parallel: FP8/NVFP4 requires an sm_120a "
+            "(NINFER_TARGET_SM_120) build");
+    }
+#endif
     if (policy != LinearPolicy::A16Only) {
         throw std::invalid_argument("linear_swiglu column-parallel: Q4 admits only A16");
     }
@@ -266,6 +290,7 @@ void issue_swiglu_column_rank(int rank, const std::array<Tensor, 2>& x,
                               LinearPolicy policy, const std::array<WorkspaceArena*, 2>& workspace,
                               const ExecutionContext& ec) {
     const auto slot = static_cast<std::size_t>(rank);
+#if NINFER_TARGET_SM_120
     if (w[slot].qtype == QType::NVFP4) {
         detail::nvfp4_linear_swiglu_dispatch_shard(x[slot], w[slot], out[slot], policy,
                                                    workspace[slot], ec.dev[slot]->stream);
@@ -275,6 +300,14 @@ void issue_swiglu_column_rank(int rank, const std::array<Tensor, 2>& x,
     } else {
         q4_column_parallel_rank(x[slot], w[slot], out[slot], workspace[slot], ec.dev[slot]->stream);
     }
+#else
+    if (w[slot].qtype == QType::NVFP4 || w[slot].qtype == QType::FP8_E4M3FN_ROW_BF16S) {
+        throw std::invalid_argument(
+            "linear_swiglu column-parallel: FP8/NVFP4 requires an sm_120a "
+            "(NINFER_TARGET_SM_120) build");
+    }
+    q4_column_parallel_rank(x[slot], w[slot], out[slot], workspace[slot], ec.dev[slot]->stream);
+#endif
 }
 
 } // namespace
@@ -287,6 +320,7 @@ std::size_t linear_swiglu_column_parallel_workspace_capacity_bytes(QType qtype, 
         throw std::invalid_argument(
             "linear_swiglu column-parallel workspace: invalid token interval");
     }
+    #if NINFER_TARGET_SM_120
     if (qtype == QType::NVFP4) {
         return detail::nvfp4_linear_swiglu_shard_workspace_capacity_bytes(policy, min_tokens,
                                                                           max_tokens);
@@ -297,6 +331,13 @@ std::size_t linear_swiglu_column_parallel_workspace_capacity_bytes(QType qtype, 
         // here, the same rule attn_input_proj's and gdn_input_proj's column shards follow.
         return detail::fp8_linear_swiglu_workspace_capacity_bytes(policy, min_tokens, max_tokens);
     }
+#else
+    if (qtype == QType::NVFP4 || qtype == QType::FP8_E4M3FN_ROW_BF16S) {
+        throw std::invalid_argument(
+            "linear_swiglu column-parallel workspace: FP8/NVFP4 requires an sm_120a "
+            "(NINFER_TARGET_SM_120) build");
+    }
+#endif
     if (qtype == QType::Q4G64_F16S) {
         if (policy != LinearPolicy::A16Only) {
             throw std::invalid_argument(

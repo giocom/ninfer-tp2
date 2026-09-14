@@ -107,6 +107,7 @@ void dispatch_single_parent(const Tensor& x, const Weight& weight, Tensor& q, Te
         return;
     }
 
+    #if NINFER_TARGET_SM_120
     if (weight.qtype == QType::NVFP4) {
         constexpr std::int32_t kHidden = 5120;
         constexpr std::int32_t kQRows  = 6144;
@@ -152,6 +153,12 @@ void dispatch_single_parent(const Tensor& x, const Weight& weight, Tensor& q, Te
         detail::fp8_attn_input_dispatch(x, weight, q, gate, k, v, policy, workspace, stream);
         return;
     }
+#else
+    if (weight.qtype == QType::NVFP4 || weight.qtype == QType::FP8_E4M3FN_ROW_BF16S) {
+        throw std::invalid_argument(
+            "attn_input_proj: FP8/NVFP4 requires an sm_120a (NINFER_TARGET_SM_120) build");
+    }
+#endif
 
     constexpr std::int32_t kHidden = 2048;
     constexpr std::int32_t kQRows  = 4096;
@@ -188,6 +195,7 @@ std::size_t attn_input_proj_workspace_capacity_bytes(QType parent_qtype, std::in
             throw std::invalid_argument("attn_input_proj workspace: unsupported BF16 profile");
         }
         return 0;
+    #if NINFER_TARGET_SM_120
     case QType::NVFP4:
         if (parent_rows != detail::Nvfp4AttnInputGeometry::kOutputRows ||
             input_rows != detail::Nvfp4AttnInputGeometry::kInputRows ||
@@ -201,6 +209,13 @@ std::size_t attn_input_proj_workspace_capacity_bytes(QType parent_qtype, std::in
             throw std::invalid_argument("attn_input_proj workspace: unsupported FP8 profile");
         }
         return detail::fp8_attn_input_workspace_capacity_bytes(policy, min_tokens, max_tokens);
+#else
+    case QType::NVFP4:
+    case QType::FP8_E4M3FN_ROW_BF16S:
+        throw std::invalid_argument(
+            "attn_input_proj workspace: FP8/NVFP4 requires an sm_120a "
+            "(NINFER_TARGET_SM_120) build");
+#endif
     case QType::W8G32_F16S:
         if (parent_rows != 9216 || input_rows != 2048 || policy != LinearPolicy::A16Only) {
             throw std::invalid_argument("attn_input_proj workspace: unsupported W8 profile");
@@ -292,6 +307,7 @@ void validate_fused_column_rank_semantics(const Tensor& x, const Weight& w, cons
     require_matrix(k, kShardKeyRows, cols, "k");
     require_matrix(v, kShardKeyRows, cols, "v");
 
+    #if NINFER_TARGET_SM_120
     if (w.qtype == QType::NVFP4) {
         if (policy != LinearPolicy::A16Only && policy != LinearPolicy::AllowA4) {
             throw std::invalid_argument(
@@ -308,6 +324,12 @@ void validate_fused_column_rank_semantics(const Tensor& x, const Weight& w, cons
         throw std::invalid_argument(
             "attn_input_proj column-parallel: unsupported fused weight format");
     }
+#else
+    (void)w;
+    throw std::invalid_argument(
+        "attn_input_proj column-parallel: FP8/NVFP4 requires an sm_120a "
+        "(NINFER_TARGET_SM_120) build");
+#endif
     if (w.n != kShardFusedRows || w.k != kShardHidden) {
         throw std::invalid_argument(
             "attn_input_proj column-parallel: unsupported weight shard shape");
@@ -380,6 +402,7 @@ std::size_t attn_input_proj_column_parallel_workspace_capacity_bytes(QType qtype
                                                                       std::int32_t max_tokens) {
     // The W4A4/A8 activation-quantize workspace is a pure function of (tokens, K), and K=5120 is
     // unchanged by the shard (only the output row count N halves) -- the tp1 query is exact here.
+    #if NINFER_TARGET_SM_120
     if (qtype == QType::NVFP4) {
         return detail::nvfp4_attn_input_workspace_capacity_bytes(policy, min_tokens, max_tokens);
     }
@@ -388,6 +411,18 @@ std::size_t attn_input_proj_column_parallel_workspace_capacity_bytes(QType qtype
     }
     throw std::invalid_argument(
         "attn_input_proj column-parallel workspace: unsupported weight format");
+#else
+    (void)policy;
+    (void)min_tokens;
+    (void)max_tokens;
+    if (qtype == QType::NVFP4 || qtype == QType::FP8_E4M3FN_ROW_BF16S) {
+        throw std::invalid_argument(
+            "attn_input_proj column-parallel workspace: FP8/NVFP4 requires an sm_120a "
+            "(NINFER_TARGET_SM_120) build");
+    }
+    throw std::invalid_argument(
+        "attn_input_proj column-parallel workspace: unsupported weight format");
+#endif
 }
 
 void attn_input_proj_column_parallel(const std::array<Tensor, 2>& x,
@@ -416,6 +451,7 @@ void attn_input_proj_column_parallel(const std::array<Tensor, 2>& x,
     std::array<Tensor, 2> v_dst{v[0], v[1]};
     detail::for_each_rank(ec, [&](int rank) {
         const auto slot = static_cast<std::size_t>(rank);
+#if NINFER_TARGET_SM_120
         const Weight& w  = query_key_gate_value_weight[slot];
         if (w.qtype == QType::NVFP4) {
             detail::nvfp4_attn_input_dispatch_shard(x[slot], w, q_dst[slot], gate_dst[slot],
@@ -426,6 +462,12 @@ void attn_input_proj_column_parallel(const std::array<Tensor, 2>& x,
                                                   k_dst[slot], v_dst[slot], policy, workspace[slot],
                                                   ec.dev[slot]->stream);
         }
+#else
+        (void)slot;
+        throw std::invalid_argument(
+            "attn_input_proj column-parallel: FP8/NVFP4 requires an sm_120a "
+            "(NINFER_TARGET_SM_120) build");
+#endif
     });
 }
 

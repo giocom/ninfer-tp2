@@ -106,11 +106,21 @@ void dispatch_linear(const Tensor& x, const Weight& w, Tensor& out, LinearPolicy
         detail::bf16_dispatch(x, w, out, policy, stream);
         return;
     case QType::NVFP4:
+#if NINFER_TARGET_SM_120
         detail::nvfp4_dispatch(x, w, out, policy, workspace, stream);
         return;
+#else
+        throw std::invalid_argument(
+            "linear: NVFP4 requires an sm_120a (NINFER_TARGET_SM_120) build");
+#endif
     case QType::FP8_E4M3FN_ROW_BF16S:
+#if NINFER_TARGET_SM_120
         detail::fp8_dispatch(x, w, out, policy, workspace, stream);
         return;
+#else
+        throw std::invalid_argument(
+            "linear: FP8 requires an sm_120a (NINFER_TARGET_SM_120) build");
+#endif
     case QType::FP32_CTRL:
     case QType::I32_CTRL:
         break;
@@ -148,15 +158,25 @@ std::size_t linear_workspace_capacity_bytes(QType qtype, std::int32_t output_row
         (void)detail::select_bf16_launch(output_rows, input_rows, max_tokens, policy);
         return 0;
     case QType::NVFP4:
+#if NINFER_TARGET_SM_120
         if (!detail::is_nvfp4_linear_problem(output_rows, input_rows) ||
             (policy != LinearPolicy::A16Only && policy != LinearPolicy::AllowA4)) {
             throw std::invalid_argument("linear workspace: unsupported NVFP4 profile");
         }
         return detail::nvfp4_linear_workspace_capacity_bytes(output_rows, input_rows, policy,
                                                              min_tokens, max_tokens);
+#else
+        throw std::invalid_argument(
+            "linear workspace: NVFP4 requires an sm_120a (NINFER_TARGET_SM_120) build");
+#endif
     case QType::FP8_E4M3FN_ROW_BF16S:
+#if NINFER_TARGET_SM_120
         return detail::fp8_linear_workspace_capacity_bytes(output_rows, input_rows, policy,
                                                            min_tokens, max_tokens);
+#else
+        throw std::invalid_argument(
+            "linear workspace: FP8 requires an sm_120a (NINFER_TARGET_SM_120) build");
+#endif
     case QType::FP32_CTRL:
     case QType::I32_CTRL:
         break;

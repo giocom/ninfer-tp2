@@ -142,6 +142,7 @@ void dispatch_linear_add(const Tensor& x, const Weight& w, Tensor& residual_out,
         return;
     }
 
+    #if NINFER_TARGET_SM_120
     if (w.qtype == QType::NVFP4) {
         if (policy != LinearPolicy::A16Only && policy != LinearPolicy::AllowA4) {
             throw std::invalid_argument("NVFP4 linear_add admits only A16 or A4");
@@ -199,6 +200,12 @@ void dispatch_linear_add(const Tensor& x, const Weight& w, Tensor& residual_out,
         detail::fp8_linear_add_dispatch(x, w, residual_out, policy, *ws, stream);
         return;
     }
+#else
+    if (w.qtype == QType::NVFP4 || w.qtype == QType::FP8_E4M3FN_ROW_BF16S) {
+        throw std::invalid_argument(
+            "linear_add: FP8/NVFP4 requires an sm_120a (NINFER_TARGET_SM_120) build");
+    }
+#endif
 
     throw std::invalid_argument("linear_add: unsupported weight format");
 }
@@ -242,6 +249,7 @@ std::size_t linear_add_workspace_capacity_bytes(QType qtype, std::int32_t output
         return detail::q5_linear_add_capacity_workspace_bytes(output_rows, input_rows, input_rows,
                                                               min_tokens, max_tokens);
     }
+    #if NINFER_TARGET_SM_120
     if (qtype == QType::NVFP4) {
         // TP2: also admit the row-parallel halves of the two residual geometries (o_proj /
         // gdn/output 6144 -> 3072, mlp/down 17408 -> 8704). Same shape rule as every other split
@@ -282,6 +290,13 @@ std::size_t linear_add_workspace_capacity_bytes(QType qtype, std::int32_t output
         return detail::fp8_linear_add_workspace_capacity_bytes(output_rows, input_rows, policy,
                                                                min_tokens, max_tokens);
     }
+#else
+    if (qtype == QType::NVFP4 || qtype == QType::FP8_E4M3FN_ROW_BF16S) {
+        throw std::invalid_argument(
+            "linear_add workspace: FP8/NVFP4 requires an sm_120a "
+            "(NINFER_TARGET_SM_120) build");
+    }
+#endif
     throw std::invalid_argument("linear_add workspace: unsupported weight format");
 }
 
