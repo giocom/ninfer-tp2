@@ -139,7 +139,7 @@ notes.
 NInfer currently requires:
 
 - 64-bit Linux;
-- one NVIDIA GeForce RTX 5090 (`sm_120a`), or two for `--tp 2`;
+- one NVIDIA GeForce RTX 5090 (`sm_120a`) or RTX 3060 (`sm_86`), or two for `--tp 2`;
 - NVIDIA driver support for CUDA 13.1 and the CUDA Toolkit 13.1 or newer;
 - CMake 3.28 or newer and a C++20-capable host compiler;
 - `pkg-config`;
@@ -148,7 +148,7 @@ NInfer currently requires:
 - `libcurl >= 7.85`;
 - Ninja, when using the commands below.
 
-The build rejects CUDA architectures other than `120a`. There is no install target or packaged
+The build accepts CUDA architectures `86` and `120a`. There is no install target or packaged
 binary distribution; NInfer is run from its source build tree.
 
 ## Build
@@ -163,6 +163,16 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ```
 
+For RTX 3060 (`sm_86`) builds, the default architecture is already `86`. To explicitly set it:
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=86
+cmake --build build --parallel
+```
+
+Note: only `groupwise-int` weight profiles work on sm_86. The `nvfp4` profiles require sm_100+
+and are excluded from sm_86 builds.
+
 The default configuration builds:
 
 ```text
@@ -174,8 +184,8 @@ Tests, benchmarks, and maintainer tools are excluded from the default build.
 
 ## Docker
 
-Build the runtime image on a 64-bit Linux host with an RTX 5090, a CUDA 13.1-compatible NVIDIA
-driver, Docker, and the
+Build the runtime image on a 64-bit Linux host with an RTX 5090 or RTX 3060, a CUDA 13.1-compatible
+NVIDIA driver, Docker, and the
 [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
 
 ```bash
@@ -365,7 +375,9 @@ entirely inside the reasoning stream:
 - `--max-concurrency 1` is arithmetic, not policy, at 1M -- one sequence costs 16.66 GiB per device
   without MTP and 17.69 GiB with it, so a second slot cannot fit on a 32 GiB card.
 - MTP speculative decoding (`--spec mtp --draft-tokens 1..5`, optionally `--lm-head-draft`) works
-  at `--tp 2` including at 1M. `--spec dflash` and `--vision` are rejected at `--tp 2`.
+  at `--tp 2` including at 1M. `--spec dflash` is rejected at `--tp 2`. On sm_120a builds, `--vision`
+  is also rejected at `--tp 2`; on sm_86 builds, Vision runs at `--tp 2` with the encoder on the
+  primary device against the replicated tower.
 
 See the [CLI guide](docs/cli.md) and [HTTP serving](docs/serving.md) for the full option contract.
 
@@ -547,9 +559,11 @@ when the resource is not present.
 
 ### Limitations
 
-- **Vision is `--tp 1` only.** The Vision encoder runs on the primary device against replicated
-  weights and has no split path, so `--tp 2 --vision` is rejected at startup. YaRN is likewise
-  rejected together with `--vision`, because the encoder ropes 2-D image-grid positions.
+- **Vision at `--tp 2` is build-dependent.** The Vision encoder runs on the primary device against
+  replicated weights and has no split path. On sm_120a builds, `--tp 2 --vision` is rejected at
+  startup. On sm_86 builds, the replicated tower (~0.3 GB) fits both devices and Vision at
+  `--tp 2` is supported. YaRN is likewise rejected together with `--vision` on all builds, because
+  the encoder ropes 2-D image-grid positions.
 - **DFlash is unchanged and is rejected at `--tp 2`.** It remains a 35B-A3B text-only backend, and
   that target has no tensor-parallel path at all.
 - **No NVLink, and no peer-to-peer on GeForce.** `cudaDeviceCanAccessPeer` reports 0 between two
@@ -632,9 +646,9 @@ from one to fifteen.
 
 - Only the five `(model_id, weights_id)` artifact identities listed above are accepted product
   identities.
-- Execution is specialized for the RTX 5090. One CUDA device is the default; the 27B execution
+- Execution is specialized for NVIDIA GeForce GPUs. One CUDA device is the default; the 27B execution
   package also runs on exactly two with `--tp 2 --devices A,B`, which is a capacity feature rather
-  than scale-out.
+  than scale-out. sm_120a (RTX 5090) and sm_86 (RTX 3060) are supported.
 - One Engine owns one resident model and supports a startup-fixed capacity of 1–8 active requests.
   Decode-ready requests are compacted at round boundaries and executed in one batched model
   traversal.
