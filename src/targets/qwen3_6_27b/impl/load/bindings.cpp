@@ -436,6 +436,11 @@ bool ends_with(std::string_view object, std::string_view suffix) {
            object.compare(object.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
 
+bool starts_with(std::string_view object, std::string_view prefix) {
+    return object.size() >= prefix.size() &&
+           object.compare(0, prefix.size(), prefix) == 0;
+}
+
 void require(bool condition, std::string_view object, std::string_view reason) {
     if (!condition) {
         throw std::invalid_argument("plan_for(" + std::string(object) + "): " + std::string(reason));
@@ -538,6 +543,10 @@ ShardMapping shard_mapping(std::string_view object, int tp, const TextConfig& co
     const auto by_columns = [](ShardPlan&& shards) {
         return ShardMapping{artifact::ShardAxis::Columns, std::move(shards)};
     };
+
+    if (starts_with(object, "vision/")) {
+        return {};
+    }
 
     // Replicated: full copy on every device (shards stays empty).
     //
@@ -841,9 +850,15 @@ ArtifactLoadPlan bind_artifact(artifact::Binder& binder, WeightsProfile weights_
                                     std::to_string(tp));
     }
     if (tp > 1) {
-        if (features.vision) {
-            // The vision tower is out of scope for TP2 and has no shard map, so reject here
-            // rather than silently replicating a 4.6 GB backbone onto both devices.
+        // sm_86 (RTX 3060) builds replicate the quantized vision tower (~0.3 GB) onto both
+        // devices and run the encoder on the primary device; see shard_mapping's vision/*
+        // branch. sm_120a keeps the original rejection.
+#if NINFER_TARGET_SM_86
+        const bool vision_allowed = true;
+#else
+        const bool vision_allowed = false;
+#endif
+        if (features.vision && !vision_allowed) {
             throw std::invalid_argument("qwen3_6_27b: vision is not supported with tp > 1");
         }
         const TextConfig config{};

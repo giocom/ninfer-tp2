@@ -63,9 +63,15 @@ void require_supported_tp_features(const EngineOptions& options) {
     }
     // The Vision encoder runs entirely on the primary device against replicated weights and has no
     // split path; the target layer states the same rule (layouts_impl.h validate_target_options).
+    // sm_86 builds (RTX 3060) replicate the ~0.3 GB tower onto both devices and run the encoder on
+    // the primary device, which is the tp1 behavior; sm_120a keeps the original veto.
+#if NINFER_TARGET_SM_86
+    (void)options;
+#else
     if (options.enable_vision) {
         throw std::invalid_argument("--tp 2 does not support Vision in this build; use --tp 1");
     }
+#endif
 }
 
 // Resolves EngineOptions.tp/.device/.devices into the device id list ExecutionContext should

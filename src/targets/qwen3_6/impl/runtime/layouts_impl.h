@@ -682,20 +682,22 @@ std::uint32_t validate_target_options(DeviceContext& device, const EngineOptions
         // MTP is split-aware (sharded stem/attention/post-mixer, sharded draft head with an
         // allgather before the proposal argmax, per-device GDN replay records and per-device
         // replay fold). DFlash is NOT: its weights are sharded by the load plan but
-        // its forward path composes plain linear/residual_add over whole-width tensors, and the
-        // Vision encoder runs entirely on device 0. Engine rejects both combinations too (its
-        // guard is the authority for callers that never reach a target); this is the
-        // target-layer statement of the same fact.
+        // its forward path composes plain linear/residual_add over whole-width tensors.
+        // On sm_86 (RTX 3060), Vision at --tp 2 runs the encoder on device 0 and is
+        // supported; the restriction applies only to DFlash.
         if (options.speculative.backend == SpeculativeBackend::DFlash) {
             throw std::invalid_argument("--tp 2 does not support the DFlash speculative backend "
                                         "in this build; use --tp 1, --spec mtp or --spec none");
         }
-        if (options.enable_vision) {
-            throw std::invalid_argument("--tp 2 does not support Vision in this build");
+        // Vision with --tp 2: permitted on sm_86 (encoder executes on the primary device).
+        // On sm_120a the original restriction stands for parity with the measured profile.
+        if (options.enable_vision && device.sm() == 120) {
+            throw std::invalid_argument("--tp 2 does not support Vision on sm_120a in this build");
         }
     }
-    if (device.sm() != 120) {
-        throw std::invalid_argument("Qwen3.6 family runtime requires compute capability 12.0");
+    if (device.sm() != 120 && device.sm() != 86) {
+        throw std::invalid_argument(
+            "Qwen3.6 family runtime requires compute capability 8.6 (RTX 3060) or 12.0 (RTX 5090)");
     }
     return effective_max_context;
 }
